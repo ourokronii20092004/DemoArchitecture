@@ -4,12 +4,15 @@ using UnityEngine;
 public class PlayerController : MonoBehaviour, IDamageable
 {
     [Header("---- NETWORK CONFIG ----")]
-    [Tooltip("Đánh dấu true nếu nhân vật này do máy hiện tại điều khiển. NetworkSpawner sẽ tự động gán giá trị này khi sinh nhân vật ra.")]
+    [Tooltip("Đánh dấu true nếu nhân vật này do máy hiện tại điều khiển.")]
     public bool isLocalPlayer = true;
 
     [Header("---- MOVEMENT SETTINGS ----")]
     [SerializeField] private float moveSpeed = 10f;
     [SerializeField] private float jumpForce = 15f;
+
+    [Tooltip("Hệ số cắt lực nhảy (Hollow Knight Mechanic). Càng nhỏ thì buông phím rơi càng nhanh.")]
+    [SerializeField][Range(0f, 1f)] private float jumpCutMultiplier = 0.4f; // MỚI THÊM
 
     [Header("---- PHYSICS SETTINGS ----")]
     [SerializeField] private Rigidbody2D rb;
@@ -42,13 +45,9 @@ public class PlayerController : MonoBehaviour, IDamageable
 
         currentHP = maxHP;
         playerLayer = gameObject.layer;
-
-        // [ĐÃ SỬA]: Lấy đúng ID của cả Boss và Enemy
         bossLayer = LayerMask.NameToLayer("Boss");
         enemyLayer = LayerMask.NameToLayer("Enemy");
 
-        // Nếu đây là nhân vật của người chơi khác qua mạng (remote player)
-        // Tắt mô phỏng vật lý đi để nhận vị trí trực tiếp từ Server/Host gửi về
         if (!isLocalPlayer)
         {
             rb.isKinematic = true;
@@ -79,11 +78,19 @@ public class PlayerController : MonoBehaviour, IDamageable
             isGrounded = Physics2D.OverlapCircle(groundCheck.position, groundCheckRadius, groundLayer);
     }
 
+    // --- CƠ CHẾ NHẢY HOLLOW KNIGHT ---
     void HandleJump()
     {
-        if (Input.GetKeyDown(KeyCode.W) && isGrounded)
+        // 1. Nếu nhấn phím (Bấm W hoặc Space) và đang đứng trên đất -> Nhảy tối đa lực
+        if ((Input.GetKeyDown(KeyCode.W) || Input.GetKeyDown(KeyCode.Space)) && isGrounded)
         {
             rb.linearVelocity = new Vector2(rb.linearVelocity.x, jumpForce);
+        }
+
+        // 2. Nếu nhả phím ra GIỮA CHỪNG lúc đang bay lên -> Cắt đứt lực bay, ép rơi xuống
+        if ((Input.GetKeyUp(KeyCode.W) || Input.GetKeyUp(KeyCode.Space)) && rb.linearVelocity.y > 0)
+        {
+            rb.linearVelocity = new Vector2(rb.linearVelocity.x, rb.linearVelocity.y * jumpCutMultiplier);
         }
     }
 
@@ -114,6 +121,10 @@ public class PlayerController : MonoBehaviour, IDamageable
         currentHP = Mathf.Max(currentHP, 0);
         Debug.Log("Player HP: " + currentHP);
 
+        // Mở khóa combat nếu đang chém mà bị quái đập trúng (chống kẹt nút chém)
+        PlayerCombat combat = GetComponent<PlayerCombat>();
+        if (combat != null) combat.FinishAttack();
+
         if (currentHP <= 0)
         {
             Die();
@@ -124,7 +135,6 @@ public class PlayerController : MonoBehaviour, IDamageable
         }
     }
 
-    // Hàm này sau này HauLT sẽ gọi thông qua gói tin mạng nếu người chơi kia bị đẩy lùi
     public void TakeKnockback(Vector2 direction, float force)
     {
         if (isDead) return;
@@ -149,7 +159,6 @@ public class PlayerController : MonoBehaviour, IDamageable
     {
         isInvincible = true;
 
-        // [ĐÃ SỬA]: Kiểm tra an toàn trước khi bỏ qua va chạm với CẢ Boss VÀ Enemy
         if (bossLayer != -1) Physics2D.IgnoreLayerCollision(playerLayer, bossLayer, true);
         if (enemyLayer != -1) Physics2D.IgnoreLayerCollision(playerLayer, enemyLayer, true);
 
@@ -163,7 +172,6 @@ public class PlayerController : MonoBehaviour, IDamageable
 
         if (sr != null) sr.enabled = true;
 
-        // [ĐÃ SỬA]: Bật lại va chạm sau khi hết thời gian bất tử
         if (bossLayer != -1) Physics2D.IgnoreLayerCollision(playerLayer, bossLayer, false);
         if (enemyLayer != -1) Physics2D.IgnoreLayerCollision(playerLayer, enemyLayer, false);
 
